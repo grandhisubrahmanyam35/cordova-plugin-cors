@@ -26,6 +26,7 @@
     NSString *path = [command argumentAtIndex:1];
     NSDictionary *headers = [command argumentAtIndex:2];
     NSObject *data = [command argumentAtIndex:3];
+    NSString *responseType = [command argumentAtIndex:4];
     
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]];
     [request setHTTPMethod:method];
@@ -44,39 +45,48 @@
         [request setValue:obj forHTTPHeaderField:key];
     }];
     
-    NSURLSessionDataTask *task = [_session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+    NSURLSessionDataTask *task = [_session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable urlResponse, NSError * _Nullable error) {
         NSNumber *statusCode = @200;
         NSString *statusText = @"OK";
+        id response = nil;
         NSString *responseText = @"";
         NSDictionary *headers = @{};
         NSString *allHeaders = @"";
-        
-        if ([response isKindOfClass:NSHTTPURLResponse.class]) {
-            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        NSString *contentType = @"";
+
+        if ([urlResponse isKindOfClass:NSHTTPURLResponse.class]) {
+            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)urlResponse;
             statusCode = [NSNumber numberWithInteger:httpResponse.statusCode];
             statusText = [RCAXMLHttpRequest statusTextForStatusCode:httpResponse.statusCode];
-            
+            contentType = [httpResponse valueForHTTPHeaderField:@"Content-Type"];
+
             NSDictionary *allHeaderFields = httpResponse.allHeaderFields;
             headers = allHeaderFields;
-            
+
             NSMutableArray *headerArray = [[NSMutableArray alloc] initWithCapacity:allHeaderFields.count];
             [allHeaderFields enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL * _Nonnull stop) {
                 [headerArray addObject:[NSString stringWithFormat:@"%@: %@", key, obj]];
             }];
             allHeaders = [headerArray componentsJoinedByString:@"\r\n"];
         }
-        
-        NSStringEncoding encoding = NSUTF8StringEncoding;
-        if (response.textEncodingName != nil) {
-            encoding = CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding((CFStringRef)response.textEncodingName));
+
+        if ([responseType isEqualToString:@"text"]) {
+            NSStringEncoding encoding = NSUTF8StringEncoding;
+            if (urlResponse.textEncodingName != nil) {
+                encoding = CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding((CFStringRef)urlResponse.textEncodingName));
+            }
+            responseText = [[NSString alloc] initWithData:data encoding:encoding];
+            response = responseText;
+        } else {
+            response = data;
         }
-        responseText = [[NSString alloc] initWithData:data encoding:encoding];
-        
+
         [self.commandDelegate sendPluginResult:
          [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
                        messageAsDictionary:@{
                                              @"status": statusCode,
                                              @"statusText": statusText,
+                                             @"response": response,
                                              @"responseText": responseText,
                                              @"responseHeaders": headers,
                                              @"allResponseHeaders": allHeaders
